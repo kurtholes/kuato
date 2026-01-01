@@ -1,10 +1,22 @@
 node_modules/
-.env
 *.log
 .DS_Store
+
+# Environment files (may contain secrets)
+.env
+.env.*
+!.env.example
 
 # Database
 postgres_data/
 
 # Bun
 bun.lockb
+
+# Lock files
+.kuato-sync.lock
+
+# Credentials and secrets
+*.pem
+*.key
+credentials.json

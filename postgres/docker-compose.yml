@@ -5,19 +5,56 @@ services:
     image: postgres:16-alpine
     container_name: claude-sessions-db
     environment:
-      POSTGRES_USER: claude
-      POSTGRES_PASSWORD: sessions
-      POSTGRES_DB: claude_sessions
+      # SECURITY: Use environment variables instead of hardcoded credentials
+      # Copy .env.example to .env and set secure values before running
+      POSTGRES_USER: ${POSTGRES_USER:-claude}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:-claude_sessions}
     ports:
-      - "5433:5432"  # Different port to avoid conflicts
+      # Bind to localhost only by default for security
+      - "${POSTGRES_HOST:-127.0.0.1}:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U claude -d claude_sessions"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-claude} -d ${POSTGRES_DB:-claude_sessions}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    # Security hardening
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run/postgresql
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: postgres/Dockerfile
+    container_name: kuato-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-claude}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-claude_sessions}
+      PORT: 3847
+      HOST: 0.0.0.0
+      KUATO_API_KEY: ${KUATO_API_KEY:?KUATO_API_KEY is required - see .env.example}
+      KUATO_SESSIONS_DIR: /sessions
+      KUATO_RATE_LIMIT: ${KUATO_RATE_LIMIT:-100}
+    ports:
+      # Bind to localhost only by default for security
+      - "${API_HOST:-127.0.0.1}:${API_PORT:-3847}:3847"
+    volumes:
+      # Mount sessions directory read-only
+      - ${CLAUDE_SESSIONS_DIR:-~/.claude/projects}:/sessions:ro
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    restart: unless-stopped
 
 volumes:
   postgres_data:
