@@ -447,6 +447,73 @@ app.get('/sessions', async (c) => {
 });
 
 // =============================================================================
+// STATISTICS ENDPOINT
+// NOTE: This must be defined BEFORE /sessions/:id to avoid route conflict
+// =============================================================================
+
+app.get('/sessions/stats', async (c) => {
+  const { days } = c.req.query();
+  const daysNum = validatePositiveInt(days, 7, MAX_DAYS);
+
+  try {
+    // Using parameterized interval query
+    const intervalParam = `${daysNum} days`;
+
+    const stats = await sql`
+      SELECT
+        COUNT(*) as session_count,
+        SUM(input_tokens) as total_input_tokens,
+        SUM(output_tokens) as total_output_tokens,
+        SUM(cache_creation_tokens) as total_cache_creation_tokens,
+        SUM(cache_read_tokens) as total_cache_read_tokens,
+        SUM(message_count) as total_messages,
+        MIN(started_at) as earliest_session,
+        MAX(ended_at) as latest_session
+      FROM sessions
+      WHERE ended_at > NOW() - ${intervalParam}::interval
+    `;
+
+    // Category breakdown
+    const categories = await sql`
+      SELECT
+        category,
+        COUNT(*) as count
+      FROM sessions
+      WHERE ended_at > NOW() - ${intervalParam}::interval
+        AND category IS NOT NULL
+      GROUP BY category
+      ORDER BY count DESC
+    `;
+
+    // Model breakdown
+    const modelStats = await sql`
+      SELECT
+        model_key as model,
+        SUM((model_value->>'input')::bigint) as input_tokens,
+        SUM((model_value->>'output')::bigint) as output_tokens
+      FROM sessions,
+        jsonb_each(model_tokens) as m(model_key, model_value)
+      WHERE ended_at > NOW() - ${intervalParam}::interval
+      GROUP BY model_key
+      ORDER BY input_tokens DESC
+    `;
+
+    return c.json({
+      success: true,
+      data: {
+        ...stats[0],
+        days: daysNum,
+        by_category: categories,
+        by_model: modelStats,
+      },
+    });
+  } catch (error) {
+    console.error('Stats error:', error instanceof Error ? error.message : 'Unknown error');
+    return c.json({ success: false, error: 'Failed to get stats' }, 500);
+  }
+});
+
+// =============================================================================
 // GET SINGLE SESSION ENDPOINT
 // =============================================================================
 
@@ -537,72 +604,6 @@ app.get('/sessions/:id', async (c) => {
   } catch (error) {
     console.error('Get session error:', error instanceof Error ? error.message : 'Unknown error');
     return c.json({ success: false, error: 'Failed to get session' }, 500);
-  }
-});
-
-// =============================================================================
-// STATISTICS ENDPOINT
-// =============================================================================
-
-app.get('/sessions/stats', async (c) => {
-  const { days } = c.req.query();
-  const daysNum = validatePositiveInt(days, 7, MAX_DAYS);
-
-  try {
-    // FIXED: Using parameterized interval query
-    const intervalParam = `${daysNum} days`;
-
-    const stats = await sql`
-      SELECT
-        COUNT(*) as session_count,
-        SUM(input_tokens) as total_input_tokens,
-        SUM(output_tokens) as total_output_tokens,
-        SUM(cache_creation_tokens) as total_cache_creation_tokens,
-        SUM(cache_read_tokens) as total_cache_read_tokens,
-        SUM(message_count) as total_messages,
-        MIN(started_at) as earliest_session,
-        MAX(ended_at) as latest_session
-      FROM sessions
-      WHERE ended_at > NOW() - ${intervalParam}::interval
-    `;
-
-    // Category breakdown
-    const categories = await sql`
-      SELECT
-        category,
-        COUNT(*) as count
-      FROM sessions
-      WHERE ended_at > NOW() - ${intervalParam}::interval
-        AND category IS NOT NULL
-      GROUP BY category
-      ORDER BY count DESC
-    `;
-
-    // Model breakdown
-    const modelStats = await sql`
-      SELECT
-        model_key as model,
-        SUM((model_value->>'input')::bigint) as input_tokens,
-        SUM((model_value->>'output')::bigint) as output_tokens
-      FROM sessions,
-        jsonb_each(model_tokens) as m(model_key, model_value)
-      WHERE ended_at > NOW() - ${intervalParam}::interval
-      GROUP BY model_key
-      ORDER BY input_tokens DESC
-    `;
-
-    return c.json({
-      success: true,
-      data: {
-        ...stats[0],
-        days: daysNum,
-        by_category: categories,
-        by_model: modelStats,
-      },
-    });
-  } catch (error) {
-    console.error('Stats error:', error instanceof Error ? error.message : 'Unknown error');
-    return c.json({ success: false, error: 'Failed to get stats' }, 500);
   }
 });
 

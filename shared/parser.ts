@@ -21,7 +21,7 @@ import type {
   ParsedSession,
   ContentBlock,
 } from './types.js';
-import { scrubSecrets, detectSecrets, type SecretFinding } from './secrets.js';
+import { scrubSecrets } from './secrets.js';
 
 // =============================================================================
 // SECURITY CONFIGURATION
