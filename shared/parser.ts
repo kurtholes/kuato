@@ -21,6 +21,7 @@ import type {
   ParsedSession,
   ContentBlock,
 } from './types.js';
+import { scrubSecrets, detectSecrets, type SecretFinding } from './secrets.js';
 
 // =============================================================================
 // SECURITY CONFIGURATION
@@ -43,6 +44,10 @@ const MAX_FILES_PER_SESSION = 10000;
 
 // Maximum number of tools to track per session
 const MAX_TOOLS_PER_SESSION = 1000;
+
+// Secret scrubbing configuration
+const SCRUB_SECRETS = process.env.KUATO_SCRUB_SECRETS !== 'false'; // Enabled by default
+const SCRUB_MIN_SEVERITY = (process.env.KUATO_SCRUB_SEVERITY || 'high') as 'critical' | 'high' | 'medium' | 'low';
 
 // =============================================================================
 // PARSING FUNCTIONS
@@ -143,10 +148,16 @@ export function parseSessionContent(
       // Extract user message text with length limit
       const userMsg = msg.message as { role: string; content: string };
       if (typeof userMsg.content === 'string' && userMsg.content.trim()) {
-        const truncatedContent = userMsg.content.length > MAX_MESSAGE_LENGTH
+        let content = userMsg.content.length > MAX_MESSAGE_LENGTH
           ? userMsg.content.slice(0, MAX_MESSAGE_LENGTH) + '...[truncated]'
           : userMsg.content;
-        userMessages.push(truncatedContent);
+
+        // Scrub secrets from user messages if enabled
+        if (SCRUB_SECRETS) {
+          content = scrubSecrets(content, { minSeverity: SCRUB_MIN_SEVERITY });
+        }
+
+        userMessages.push(content);
       }
     } else if (msg.type === 'assistant') {
       const assistantMsg = msg.message as AssistantMessage;
